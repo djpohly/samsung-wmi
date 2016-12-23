@@ -34,13 +34,33 @@ MODULE_ALIAS("wmi:"SAMSUNG_WMI_GUID);
 
 
 static int __init
+samsung_platform_init(void)
+{
+	pr_info("Initializing platform driver\n");
+	return 0;
+}
+
+static void __exit
+samsung_platform_destroy(void)
+{
+	pr_info("Destroyed platform driver\n");
+}
+
+static int __init
 samsung_wmi_init(void)
 {
+	int ret;
+
 	pr_info("Loading module\n");
 
 	/* Ensure that the required interface is present */
 	if (!wmi_has_guid(SAMSUNG_WMI_GUID))
 		return -ENODEV;
+
+	/* Set up platform device and driver */
+	ret = samsung_platform_init();
+	if (ret)
+		return ret;
 
 	return 0;
 }
@@ -48,6 +68,9 @@ samsung_wmi_init(void)
 static void __exit
 samsung_wmi_exit(void)
 {
+	/* Tear down platform device and driver */
+	samsung_platform_destroy();
+
 	pr_info("Module unloaded\n");
 }
 
