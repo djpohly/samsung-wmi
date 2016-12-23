@@ -22,6 +22,9 @@
 #include <linux/init.h>
 #include <linux/types.h>
 #include <linux/acpi.h>
+#include <linux/platform_device.h>
+#include <linux/leds.h>
+#include <linux/workqueue.h>
 
 MODULE_AUTHOR("Devin J. Pohly");
 MODULE_DESCRIPTION("WMI extras for Samsung laptops");
@@ -29,12 +32,19 @@ MODULE_VERSION("0.1");
 MODULE_LICENSE("GPL");
 
 #define SAMSUNG_WMI_GUID	"C16C47BA-50E3-444A-AF3A-B1C348380001"
+#define SAMSUNG_WMI_INSTANCE	0
+#define SAMSUNG_WMI_METHOD	0
 #define SAMSUNG_WMI_MAGIC	0x5843
 #define SAMSUNG_RESPONSE_LEN	21
 
 #define SAMSUNG_FN_KBDLIGHT	0x78
 
 MODULE_ALIAS("wmi:"SAMSUNG_WMI_GUID);
+
+struct samsung_wmi {
+	struct led_classdev kbd_backlight;
+	struct work_struct kbd_work;
+};
 
 struct samsung_sabi_msg {
 	u16 smfn;
@@ -43,7 +53,15 @@ struct samsung_sabi_msg {
 	u8 sabx[16];
 } __attribute__((packed));
 
-static acpi_status sabi_command(u16 command, u8 *in, u8 *out)
+/*
+ * sabi_command
+ *
+ * Executes a command via Samsung's SABI interface.  This interface uses a
+ * 16-bit function ID and a 16-byte input/output buffer for optional data or
+ * return values.
+ */
+static acpi_status
+sabi_command(u16 function, u8 *in, u8 *out)
 {
 	struct samsung_sabi_msg msg;
 	struct acpi_buffer sendBuf, recvBuf;
@@ -54,7 +72,7 @@ static acpi_status sabi_command(u16 command, u8 *in, u8 *out)
 	/* Prepare SABI message */
 	memset(&msg, 0, sizeof(msg));
 	msg.smfn = SAMSUNG_WMI_MAGIC;
-	msg.ssfn = command;
+	msg.ssfn = function;
 	msg.sfcf = 0;
 	memcpy(msg.sabx, in, sizeof(msg.sabx));
 
@@ -69,7 +87,8 @@ static acpi_status sabi_command(u16 command, u8 *in, u8 *out)
 			sendBuf.pointer, sendBuf.length, false);
 
 	/* Execute WMI method */
-	rv = wmi_evaluate_method(SAMSUNG_WMI_GUID, 0, 0, &sendBuf, &recvBuf);
+	rv = wmi_evaluate_method(SAMSUNG_WMI_GUID, SAMSUNG_WMI_INSTANCE,
+			SAMSUNG_WMI_METHOD , &sendBuf, &recvBuf);
 	if (ACPI_FAILURE(rv))
 		return rv;
 
@@ -111,39 +130,199 @@ out_free:
 	return rv;
 }
 
-static int __init samsung_kbd_backlight_init(void)
+static void
+samsung_update_kbd_brightness(struct work_struct *work)
 {
-	u8 query[16] = { 0xbb, 0xaa };
+	struct samsung_wmi *wmi = container_of(work, struct samsung_wmi,
+			kbd_work);
+
+	u8 cmd[16] = {0x82, wmi->kbd_backlight.brightness};
 	acpi_status rv;
 
-	pr_info("Checking for keyboard backlight support\n");
-	rv = sabi_command(SAMSUNG_FN_KBDLIGHT, query, query);
+	rv = sabi_command(SAMSUNG_FN_KBDLIGHT, cmd, cmd);
+	if (ACPI_FAILURE(rv))
+		pr_warn("Problem setting keyboard brightness\n");
+}
+
+
+static void
+samsung_kbd_brightness_set(struct led_classdev *led_cdev,
+		enum led_brightness brightness)
+{
+	struct samsung_wmi *wmi = container_of(led_cdev, struct samsung_wmi,
+			kbd_backlight);
+
+	if (brightness > led_cdev->max_brightness)
+		brightness = led_cdev->max_brightness;
+	led_cdev->brightness = brightness;
+	schedule_work(&wmi->kbd_work);
+}
+
+static enum led_brightness
+samsung_kbd_brightness_get(struct led_classdev *led_cdev)
+{
+	u8 cmd[16] = {0x81};
+	acpi_status rv;
+
+	rv = sabi_command(SAMSUNG_FN_KBDLIGHT, cmd, cmd);
+	if (ACPI_FAILURE(rv)) {
+		pr_warn("Problem getting keyboard brightness\n");
+		return 0;
+	}
+	return cmd[0];
+}
+
+/* XXX move to init */
+static struct led_classdev kbd_led = {
+	.name = KBUILD_MODNAME "::kbd_backlight",
+	.brightness = 0,
+	.max_brightness = 0,
+	.brightness_set = samsung_kbd_brightness_set,
+	.brightness_get = samsung_kbd_brightness_get,
+};
+
+static void
+samsung_kbd_backlight_work(struct work_struct *work)
+{
+	pr_info("Keyboard work function called");
+}
+
+static int __init
+samsung_kbd_backlight_init(struct samsung_wmi *wmi)
+{
+	u8 cmd[16] = {0xbb, 0xaa};
+	acpi_status rv;
+
+	pr_info("Initializing keyboard backlight work");
+	INIT_WORK(&wmi->kbd_work, samsung_kbd_backlight_work);
+
+	pr_info("Initializing keyboard backlight\n");
+	rv = sabi_command(SAMSUNG_FN_KBDLIGHT, cmd, cmd);
 	if (ACPI_FAILURE(rv)) {
 		pr_err("Sending message failed\n");
 		return -EIO;
 	}
 
-	if (*((u16 *) query) != 0xccdd) {
-		pr_info("No support for keyboard backlight\n");
+	if (*((u16 *) cmd) != 0xccdd) {
+		pr_info("No keyboard backlight support found\n");
 		return 0;
 	}
 
-	pr_info("Found support for keyboard backlight\n");
+	pr_info("Found support for keyboard backlight; getting brightness\n");
 
-	memset(query, 0, sizeof(query));
-	query[0] = 0x82;
-	query[1] = 3;
-	sabi_command(SAMSUNG_FN_KBDLIGHT, query, query);
+	/* Get brightness parameters */
+	memset(cmd, 0, sizeof(cmd));
+	cmd[0] = 0x81;
+	rv = sabi_command(SAMSUNG_FN_KBDLIGHT, cmd, cmd);
+	if (ACPI_FAILURE(rv)) {
+		pr_err("Failed to query keyboard brightness\n");
+		return -EIO;
+	}
+
+	kbd_led.brightness = cmd[0];
+	kbd_led.max_brightness = cmd[1];
+	pr_info("Current brightness is %d/%d\n", cmd[0], cmd[1]);
+
+	led_classdev_register(&samsung_device->dev, &kbd_led);
 
 	return 0;
 }
 
-static void samsung_kbd_backlight_destroy(void)
+static void
+samsung_kbd_backlight_destroy(struct samsung_wmi *wmi)
 {
 	pr_info("Removing keyboard backlight\n");
+	led_classdev_unregister(&kbd_led);
+
+	flush_work(wmi->kbd_work);
 }
 
-static int __init samsung_wmi_init(void)
+
+/* Platform driver definitions */
+
+static int
+samsung_wmi_probe(struct platform_device *dev)
+{
+	struct samsung_wmi *wmi;
+
+	pr_info("Probing Samsung platform driver");
+
+	wmi = kmalloc(sizeof(*wmi), GFP_KERNEL);
+
+	/* Set up the keyboard backlight */
+	ret = samsung_kbd_backlight_init(wmi);
+	if (ret) {
+		pr_err("Failed to initialize keyboard backlight\n");
+		return ret;
+	}
+
+	return 0;
+}
+
+static int
+samsung_wmi_remove(struct platform_device *dev)
+{
+	pr_info("Removing Samsung platform driver");
+	samsung_kbd_backlight_destroy(wmi);
+	return 0;
+}
+
+static struct platform_driver samsung_driver = {
+	.driver = {
+		.name = KBUILD_MODNAME,
+		.owner = THIS_MODULE,
+	},
+	.probe = samsung_wmi_probe,
+	.remove = samsung_wmi_remove,
+};
+
+static struct platform_device *samsung_device;
+
+
+static int __init
+samsung_wmi_platform_init(void)
+{
+	int ret;
+
+	pr_info("Registering platform driver");
+	ret = platform_driver_register(&samsung_driver);
+	if (ret) {
+		pr_err("Failed to register platform driver");
+		return ret;
+	}
+
+	pr_info("Registering platform device");
+	samsung_device = platform_device_alloc(KBUILD_MODNAME, -1);
+	if (!samsung_device) {
+		pr_err("Failed to allocate platform device");
+		ret = -ENOMEM;
+		goto err_device_alloc;
+	}
+
+	ret = platform_device_add(samsung_device);
+	if (ret) {
+		pr_err("Failed to add platform device");
+		goto err_device_add;
+	}
+
+	return 0;
+
+err_device_add:
+		platform_device_put(samsung_device);
+err_device_alloc:
+		platform_driver_unregister(&samsung_driver);
+		return ret;
+}
+
+static void __exit
+samsung_wmi_platform_destroy(void)
+{
+	platform_device_unregister(samsung_device);
+	platform_driver_unregister(&samsung_driver);
+}
+
+static int __init
+samsung_wmi_init(void)
 {
 	int ret;
 
@@ -151,12 +330,12 @@ static int __init samsung_wmi_init(void)
 	if (!wmi_has_guid(SAMSUNG_WMI_GUID))
 		return -ENODEV;
 
-	pr_info("Loading Samsung laptop WMI driver...\n");
+	pr_info("Loading module\n");
 
-	/* Set up the keyboard backlight */
-	ret = samsung_kbd_backlight_init();
+	/* Set up our basic platform driver and device */
+	ret = samsung_wmi_platform_init();
 	if (ret) {
-		pr_err("Failed to set up keyboard backlight\n");
+		pr_err("Failed to initialize platform\n");
 		return ret;
 	}
 
@@ -165,11 +344,13 @@ static int __init samsung_wmi_init(void)
 	return 0;
 }
 
-static void __exit samsung_wmi_exit(void)
+static void __exit
+samsung_wmi_exit(void)
 {
-	samsung_kbd_backlight_destroy();
+	/* XXX get wmi?? */
+	samsung_wmi_platform_destroy(wmi);
 
-	pr_info("Samsung laptop WMI driver unloaded\n");
+	pr_info("Module unloaded\n");
 }
 
 module_init(samsung_wmi_init);
