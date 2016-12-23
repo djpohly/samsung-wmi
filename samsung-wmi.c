@@ -22,6 +22,7 @@
 #include <linux/init.h>
 #include <linux/types.h>
 #include <linux/acpi.h>
+#include <linux/platform_device.h>
 
 MODULE_AUTHOR("Devin J. Pohly");
 MODULE_DESCRIPTION("WMI extras for Samsung laptops");
@@ -33,17 +34,49 @@ MODULE_LICENSE("GPL");
 MODULE_ALIAS("wmi:"SAMSUNG_WMI_GUID);
 
 
+static int
+samsung_wmi_probe(struct platform_device *dev)
+{
+	pr_info("Probing platform device\n");
+	return 0;
+}
+
+static int
+samsung_wmi_remove(struct platform_device *dev)
+{
+	pr_info("Removing platform device\n");
+	return 0;
+}
+
+static struct platform_driver samsung_wmi_driver = {
+	.driver = {
+		.name = KBUILD_MODNAME,
+		.owner = THIS_MODULE,
+	},
+	.probe = samsung_wmi_probe,
+	.remove = samsung_wmi_remove,
+};
+
 static int __init
 samsung_platform_init(void)
 {
-	pr_info("Initializing platform driver\n");
+	int ret;
+
+	pr_info("Registering platform driver\n");
+	ret = platform_driver_register(&samsung_wmi_driver);
+	if (ret) {
+		pr_err("Failed to register platform driver (error %d)\n", -ret);
+		return ret;
+	}
+
 	return 0;
 }
 
 static void __exit
 samsung_platform_destroy(void)
 {
-	pr_info("Destroyed platform driver\n");
+	pr_info("Unregistering platform driver\n");
+	platform_driver_unregister(&samsung_wmi_driver);
 }
 
 static int __init
@@ -54,10 +87,12 @@ samsung_wmi_init(void)
 	pr_info("Loading module\n");
 
 	/* Ensure that the required interface is present */
-	if (!wmi_has_guid(SAMSUNG_WMI_GUID))
+	if (!wmi_has_guid(SAMSUNG_WMI_GUID)) {
+		pr_err("WMI interface not found\n");
 		return -ENODEV;
+	}
 
-	/* Set up platform device and driver */
+	/* Set up platform driver and device */
 	ret = samsung_platform_init();
 	if (ret)
 		return ret;
