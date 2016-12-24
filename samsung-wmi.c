@@ -37,14 +37,14 @@ MODULE_ALIAS("wmi:"SAMSUNG_WMI_GUID);
 static int
 samsung_wmi_probe(struct platform_device *dev)
 {
-	pr_info("Probing platform device\n");
+	pr_info("Platform device detected\n");
 	return 0;
 }
 
 static int
 samsung_wmi_remove(struct platform_device *dev)
 {
-	pr_info("Removing platform device\n");
+	pr_info("Platform device removed\n");
 	return 0;
 }
 
@@ -56,6 +56,8 @@ static struct platform_driver samsung_wmi_driver = {
 	.probe = samsung_wmi_probe,
 	.remove = samsung_wmi_remove,
 };
+
+static struct platform_device *samsung_device;
 
 static int __init
 samsung_platform_init(void)
@@ -69,12 +71,32 @@ samsung_platform_init(void)
 		return ret;
 	}
 
+	pr_info("Allocating platform device\n");
+	samsung_device = platform_device_alloc(KBUILD_MODNAME, -1);
+	if (!samsung_device) {
+		pr_err("Failed to allocate platform device (error %d)\n", -ret);
+		platform_driver_unregister(&samsung_wmi_driver);
+		return ret;
+	}
+
+	pr_info("Adding platform device\n");
+	ret = platform_device_add(samsung_device);
+	if (ret) {
+		pr_err("Failed to add platform device (error %d)\n", -ret);
+		platform_device_put(samsung_device);
+		platform_driver_unregister(&samsung_wmi_driver);
+		return ret;
+	}
+
 	return 0;
 }
 
 static void __exit
 samsung_platform_destroy(void)
 {
+	pr_info("Unregistering platform device\n");
+	platform_device_unregister(samsung_device);
+
 	pr_info("Unregistering platform driver\n");
 	platform_driver_unregister(&samsung_wmi_driver);
 }
