@@ -71,7 +71,7 @@ samsung_platform_init(void)
 		return ret;
 	}
 
-	pr_info("Allocating platform device\n");
+	pr_info("Registering platform device\n");
 	samsung_device = platform_device_alloc(KBUILD_MODNAME, -1);
 	if (!samsung_device) {
 		pr_err("Failed to allocate platform device (error %d)\n", -ret);
@@ -79,7 +79,6 @@ samsung_platform_init(void)
 		return ret;
 	}
 
-	pr_info("Adding platform device\n");
 	ret = platform_device_add(samsung_device);
 	if (ret) {
 		pr_err("Failed to add platform device (error %d)\n", -ret);
@@ -94,11 +93,11 @@ samsung_platform_init(void)
 static void __exit
 samsung_platform_destroy(void)
 {
-	pr_info("Unregistering platform device\n");
 	platform_device_unregister(samsung_device);
+	pr_info("Unregistered platform device\n");
 
-	pr_info("Unregistering platform driver\n");
 	platform_driver_unregister(&samsung_wmi_driver);
+	pr_info("Unregistered platform driver\n");
 }
 
 static int __init
@@ -106,6 +105,7 @@ samsung_wmi_init(void)
 {
 	int ret;
 
+	pr_info("\n");
 	pr_info("Loading module\n");
 
 	/* Ensure that the required interface is present */
@@ -119,12 +119,17 @@ samsung_wmi_init(void)
 	if (ret)
 		return ret;
 
+	pr_info("Module loaded\n");
+
 	return 0;
 }
 
 static void __exit
 samsung_wmi_exit(void)
 {
+	pr_info("\n");
+	pr_info("Unloading module\n");
+
 	/* Tear down platform device and driver */
 	samsung_platform_destroy();
 
