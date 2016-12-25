@@ -22,6 +22,7 @@
 #include <linux/init.h>
 #include <linux/types.h>
 #include <linux/acpi.h>
+#include <linux/leds.h>
 #include <linux/platform_device.h>
 
 MODULE_AUTHOR("Devin J. Pohly");
@@ -33,17 +34,62 @@ MODULE_LICENSE("GPL");
 
 MODULE_ALIAS("wmi:"SAMSUNG_WMI_GUID);
 
+struct samsung_wmi {
+	struct led_classdev kbd_backlight;
+};
+
+
+static int
+samsung_kbd_backlight_init(struct samsung_wmi *wmi)
+{
+	pr_info("Initializing keyboard backlight\n");
+	return 0;
+}
+
+static void
+samsung_kbd_backlight_destroy(struct samsung_wmi *wmi)
+{
+	pr_info("Cleaning up keyboard backlight\n");
+}
 
 static int
 samsung_wmi_probe(struct platform_device *dev)
 {
+	struct samsung_wmi *wmi;
+	int ret;
+
 	pr_info("Platform device detected\n");
+
+	wmi = kzalloc(sizeof(*wmi), GFP_KERNEL);
+	if (!wmi) {
+		pr_err("Failed to allocate private struct\n");
+		return -ENOMEM;
+	}
+
+	ret = samsung_kbd_backlight_init(wmi);
+	if (ret) {
+		pr_err("Failed to initialize keyboard backlight (error %d)\n",
+				-ret);
+		kfree(wmi);
+		return ret;
+	}
+
+	platform_set_drvdata(dev, wmi);
+	pr_info("Initialized platform device\n");
 	return 0;
 }
 
 static int
 samsung_wmi_remove(struct platform_device *dev)
 {
+	struct samsung_wmi *wmi;
+
+	pr_info("Cleaning up platform device\n");
+
+	wmi = platform_get_drvdata(dev);
+	samsung_kbd_backlight_destroy(wmi);
+	kfree(wmi);
+
 	pr_info("Platform device removed\n");
 	return 0;
 }
