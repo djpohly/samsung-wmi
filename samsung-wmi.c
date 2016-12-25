@@ -30,6 +30,7 @@ MODULE_DESCRIPTION("WMI extras for Samsung laptops");
 MODULE_VERSION("0.1");
 MODULE_LICENSE("GPL");
 
+#define SAMSUNG_WMI_DRIVER	"samsung-wmi"
 #define SAMSUNG_WMI_GUID	"C16C47BA-50E3-444A-AF3A-B1C348380001"
 
 MODULE_ALIAS("wmi:"SAMSUNG_WMI_GUID);
@@ -99,7 +100,7 @@ samsung_wmi_remove(struct platform_device *dev)
 
 static struct platform_driver samsung_wmi_driver = {
 	.driver = {
-		.name = KBUILD_MODNAME,
+		.name = SAMSUNG_WMI_DRIVER,
 		.owner = THIS_MODULE,
 	},
 	.probe = samsung_wmi_probe,
@@ -121,7 +122,7 @@ samsung_platform_init(void)
 	}
 
 	pr_info("Registering platform device\n");
-	samsung_device = platform_device_alloc(KBUILD_MODNAME, -1);
+	samsung_device = platform_device_alloc(SAMSUNG_WMI_DRIVER, -1);
 	if (!samsung_device) {
 		pr_err("Failed to allocate platform device (error %d)\n", -ret);
 		goto err_device_alloc;
