@@ -70,13 +70,16 @@ samsung_wmi_probe(struct platform_device *dev)
 	if (ret) {
 		pr_err("Failed to initialize keyboard backlight (error %d)\n",
 				-ret);
-		kfree(wmi);
-		return ret;
+		goto err_backlight_init;
 	}
 
 	platform_set_drvdata(dev, wmi);
 	pr_info("Initialized platform device\n");
 	return 0;
+
+err_backlight_init:
+	kfree(wmi);
+	return ret;
 }
 
 static int
@@ -121,19 +124,22 @@ samsung_platform_init(void)
 	samsung_device = platform_device_alloc(KBUILD_MODNAME, -1);
 	if (!samsung_device) {
 		pr_err("Failed to allocate platform device (error %d)\n", -ret);
-		platform_driver_unregister(&samsung_wmi_driver);
-		return ret;
+		goto err_device_alloc;
 	}
 
 	ret = platform_device_add(samsung_device);
 	if (ret) {
 		pr_err("Failed to add platform device (error %d)\n", -ret);
-		platform_device_put(samsung_device);
-		platform_driver_unregister(&samsung_wmi_driver);
-		return ret;
+		goto err_device_add;
 	}
 
 	return 0;
+
+err_device_add:
+	platform_device_put(samsung_device);
+err_device_alloc:
+	platform_driver_unregister(&samsung_wmi_driver);
+	return ret;
 }
 
 static void __exit
