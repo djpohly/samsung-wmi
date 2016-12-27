@@ -32,13 +32,157 @@ MODULE_LICENSE("GPL");
 
 #define SAMSUNG_WMI_DRIVER	"samsung-wmi"
 #define SAMSUNG_WMI_GUID	"C16C47BA-50E3-444A-AF3A-B1C348380001"
+#define SAMSUNG_WMI_INSTANCE	0
+#define SAMSUNG_WMI_METHOD	0
+#define SAMSUNG_WMI_MAGIC	0x5843
+#define SAMSUNG_RESPONSE_LEN	21
 
 MODULE_ALIAS("wmi:"SAMSUNG_WMI_GUID);
 
 struct samsung_wmi {
-	struct led_classdev kbd_backlight;
+	unsigned int has_perflevel : 1;
+	unsigned int has_kbdlight : 1;
+	unsigned int has_misc : 1;
+	unsigned int has_turbo : 1;
 };
 
+struct samsung_sabi_msg {
+	u16 smfn;
+	u16 ssfn;
+	u8 sfcf;
+	u8 sabx[16];
+} __attribute__((packed));
+
+
+
+/*
+ * samsung_sabi_cmd
+ *
+ * Executes a command via Samsung's SABI interface.  This interface uses a
+ * 16-bit function ID and a 16-byte input/output buffer for optional data or
+ * return values.
+ */
+static acpi_status
+samsung_sabi_cmd(u16 function, const u8 *in, u8 *out)
+{
+	struct samsung_sabi_msg msg;
+	struct acpi_buffer sendBuf, recvBuf;
+	union acpi_object *return_obj;
+	struct samsung_sabi_msg *return_msg;
+	acpi_status rv;
+
+	/* Prepare SABI message */
+	msg.smfn = SAMSUNG_WMI_MAGIC;
+	msg.ssfn = function;
+	msg.sfcf = 0;
+	memcpy(msg.sabx, in, sizeof(msg.sabx));
+
+	/* Set up send and receive ACPI buffers */
+	sendBuf.length = sizeof(msg);
+	sendBuf.pointer = (u8 *) &msg;
+	recvBuf.length = ACPI_ALLOCATE_BUFFER;
+	recvBuf.pointer = NULL;
+
+	/* XXX debug */
+	print_hex_dump(KERN_INFO, "SABI send: ", DUMP_PREFIX_OFFSET, 16, 1,
+			sendBuf.pointer, sendBuf.length, false);
+
+	/* Execute WMI method */
+	rv = wmi_evaluate_method(SAMSUNG_WMI_GUID, SAMSUNG_WMI_INSTANCE,
+			SAMSUNG_WMI_METHOD , &sendBuf, &recvBuf);
+	if (ACPI_FAILURE(rv)) {
+		pr_err("Error in SABI communication: %s\n",
+				acpi_format_exception(rv));
+		return rv;
+	}
+
+	/* Fetch and validate return object */
+	return_obj = (union acpi_object *) recvBuf.pointer;
+	if (!return_obj) {
+		pr_err("Null buffer returned from SABI\n");
+		rv = AE_TYPE;
+		goto out_free;
+	}
+	if (return_obj->type != ACPI_TYPE_BUFFER) {
+		pr_err("Unexpected (non-buffer) return type from SABI\n");
+		rv = AE_TYPE;
+		goto out_free;
+	}
+	if (return_obj->buffer.length > sizeof(msg)) {
+		pr_err("Buffer returned from SABI too large\n");
+		rv = AE_BUFFER_OVERFLOW;
+		goto out_free;
+	}
+
+	/* Validate reply message */
+	return_msg = (struct samsung_sabi_msg *) return_obj->buffer.pointer;
+	if (return_msg->sfcf != 0xaa) {
+		rv = AE_SUPPORT;
+		goto out_free;
+	}
+
+	/* XXX debug */
+	print_hex_dump(KERN_INFO, "SABI recv: ", DUMP_PREFIX_OFFSET, 16, 1,
+			return_msg->sabx, sizeof(return_msg->sabx), false);
+
+	/* Return the output data */
+	if (out)
+		memcpy(out, return_msg->sabx, sizeof(return_msg->sabx));
+
+out_free:
+	kfree(recvBuf.pointer);
+	return rv;
+}
+
+/*
+ * samsung_wmi_getfeatures
+ *
+ * Probes the SABI interface for feature support, recording the results in the
+ * samsung_wmi struct.
+ */
+static int
+samsung_wmi_getfeatures(struct samsung_wmi *sammy)
+{
+	u8 bbaa[16] = {0xbb, 0xaa};
+	u8 buf[16];
+	acpi_status rv;
+
+	pr_info("Probing SABI for features\n");
+
+	/* Check for and initialize performance level support */
+	rv = samsung_sabi_cmd(0x31, bbaa, buf);
+	if (ACPI_FAILURE(rv) && rv != AE_SUPPORT)
+		return -EIO;
+	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc)
+		sammy->has_perflevel = 1;
+	pr_info(" [%s] Performance level (31)\n", sammy->has_perflevel ? "x" : " ");
+
+	/* Check for and initialize keyboard backlight support */
+	rv = samsung_sabi_cmd(0x78, bbaa, buf);
+	if (ACPI_FAILURE(rv) && rv != AE_SUPPORT)
+		return -EIO;
+	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc)
+		sammy->has_kbdlight = 1;
+	pr_info(" [%s] Keyboard backlight (78)\n", sammy->has_kbdlight ? "x" : " ");
+
+	/* Check for and initialize miscellaneous settings */
+	rv = samsung_sabi_cmd(0x7a, bbaa, buf);
+	if (ACPI_FAILURE(rv) && rv != AE_SUPPORT)
+		return -EIO;
+	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc)
+		sammy->has_misc = 1;
+	pr_info(" [%s] Miscellaneous settings (7a)\n", sammy->has_misc ? "x" : " ");
+
+	/* Check for and initialize turbo support */
+	rv = samsung_sabi_cmd(0x88, bbaa, buf);
+	if (ACPI_FAILURE(rv) && rv != AE_SUPPORT)
+		return -EIO;
+	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc)
+		sammy->has_turbo = 1;
+	pr_info(" [%s] Turbo boost (88)\n", sammy->has_turbo ? "x" : " ");
+
+	return 0;
+}
 
 static int
 samsung_kbd_backlight_init(struct samsung_wmi *sammy)
@@ -75,17 +219,26 @@ samsung_wmi_probe(struct platform_device *dev)
 
 	ret = samsung_wmi_getfeatures(sammy);
 	if (ret) {
-		pr_err("Failed to initialize keyboard backlight (error %d)\n",
-				-ret);
-		goto err_backlight_init;
+		pr_err("Failed to probe for features (error %d)\n", -ret);
+		goto err_getfeatures;
 	}
 
-	platform_set_drvdata(dev, wmi);
+	if (sammy->has_kbdlight) {
+		ret = samsung_kbd_backlight_init(sammy);
+		if (ret) {
+			pr_err("Failed to initialize keyboard backlight"
+					" (error %d)\n", -ret);
+			goto err_backlight_init;
+		}
+	}
+
+	platform_set_drvdata(dev, sammy);
 	pr_info("Initialized platform device\n");
 	return 0;
 
 err_backlight_init:
-	kfree(wmi);
+err_getfeatures:
+	kfree(sammy);
 	return ret;
 }
 
@@ -102,7 +255,8 @@ samsung_wmi_remove(struct platform_device *dev)
 	pr_info("Cleaning up platform device\n");
 
 	sammy = platform_get_drvdata(dev);
-	samsung_kbd_backlight_destroy(sammy);
+	if (sammy->has_kbdlight)
+		samsung_kbd_backlight_destroy(sammy);
 	kfree(sammy);
 
 	pr_info("Platform device removed\n");
