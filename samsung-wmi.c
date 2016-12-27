@@ -41,33 +41,39 @@ struct samsung_wmi {
 
 
 static int
-samsung_kbd_backlight_init(struct samsung_wmi *wmi)
+samsung_kbd_backlight_init(struct samsung_wmi *sammy)
 {
 	pr_info("Initializing keyboard backlight\n");
 	return 0;
 }
 
 static void
-samsung_kbd_backlight_destroy(struct samsung_wmi *wmi)
+samsung_kbd_backlight_destroy(struct samsung_wmi *sammy)
 {
 	pr_info("Cleaning up keyboard backlight\n");
 }
 
+/*
+ * samsung_wmi_probe
+ *
+ * Driver function to initialize platform device and features.  Checks first for
+ * feature support, then initializes the relevant interfaces.
+ */
 static int
 samsung_wmi_probe(struct platform_device *dev)
 {
-	struct samsung_wmi *wmi;
+	struct samsung_wmi *sammy;
 	int ret;
 
 	pr_info("Platform device detected\n");
 
-	wmi = kzalloc(sizeof(*wmi), GFP_KERNEL);
-	if (!wmi) {
+	sammy = kzalloc(sizeof(*sammy), GFP_KERNEL);
+	if (!sammy) {
 		pr_err("Failed to allocate private struct\n");
 		return -ENOMEM;
 	}
 
-	ret = samsung_kbd_backlight_init(wmi);
+	ret = samsung_wmi_getfeatures(sammy);
 	if (ret) {
 		pr_err("Failed to initialize keyboard backlight (error %d)\n",
 				-ret);
@@ -83,21 +89,27 @@ err_backlight_init:
 	return ret;
 }
 
+/*
+ * samsung_wmi_remove
+ *
+ * Driver function to clean up platform device when it is removed.
+ */
 static int
 samsung_wmi_remove(struct platform_device *dev)
 {
-	struct samsung_wmi *wmi;
+	struct samsung_wmi *sammy;
 
 	pr_info("Cleaning up platform device\n");
 
-	wmi = platform_get_drvdata(dev);
-	samsung_kbd_backlight_destroy(wmi);
-	kfree(wmi);
+	sammy = platform_get_drvdata(dev);
+	samsung_kbd_backlight_destroy(sammy);
+	kfree(sammy);
 
 	pr_info("Platform device removed\n");
 	return 0;
 }
 
+/* Platform driver definition and device pointer */
 static struct platform_driver samsung_wmi_driver = {
 	.driver = {
 		.name = SAMSUNG_WMI_DRIVER,
@@ -106,9 +118,14 @@ static struct platform_driver samsung_wmi_driver = {
 	.probe = samsung_wmi_probe,
 	.remove = samsung_wmi_remove,
 };
-
 static struct platform_device *samsung_device;
 
+/*
+ * samsung_platform_init
+ *
+ * Registers the platform driver and creates a platform device to bind to it.
+ * Features will be attached to this device.
+ */
 static int __init
 samsung_platform_init(void)
 {
@@ -143,6 +160,11 @@ err_device_alloc:
 	return ret;
 }
 
+/*
+ * samsung_platform_destroy
+ *
+ * Removes the platform device and unregisters the platform driver.
+ */
 static void __exit
 samsung_platform_destroy(void)
 {
@@ -153,6 +175,11 @@ samsung_platform_destroy(void)
 	pr_info("Unregistered platform driver\n");
 }
 
+/*
+ * samsung_wmi_init
+ *
+ * Checks for the Samsung WMI interface and initializes the driver.
+ */
 static int __init
 samsung_wmi_init(void)
 {
@@ -161,7 +188,7 @@ samsung_wmi_init(void)
 	pr_info("\n");
 	pr_info("Loading module\n");
 
-	/* Ensure that the required interface is present */
+	/* Ensure that the required WMI method is present */
 	if (!wmi_has_guid(SAMSUNG_WMI_GUID)) {
 		pr_err("WMI interface not found\n");
 		return -ENODEV;
@@ -177,6 +204,11 @@ samsung_wmi_init(void)
 	return 0;
 }
 
+/*
+ * samsung_wmi_exit
+ *
+ * Cleans up the Samsung WMI driver.
+ */
 static void __exit
 samsung_wmi_exit(void)
 {
