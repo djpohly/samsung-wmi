@@ -36,6 +36,7 @@ MODULE_LICENSE("GPL");
 #define SAMSUNG_WMI_METHOD	0
 #define SAMSUNG_WMI_MAGIC	0x5843
 #define SAMSUNG_RESPONSE_LEN	21
+static const u8 SAMSUNG_QUERY_LID[16] = {0x82, 0xa3, 0x82};
 
 MODULE_ALIAS("wmi:"SAMSUNG_WMI_GUID);
 
@@ -44,6 +45,7 @@ struct samsung_wmi {
 	unsigned int has_perflevel : 1;
 	unsigned int has_turbo : 1;
 	unsigned int has_misc : 1;
+	unsigned int has_lidcontrol : 1;
 };
 
 struct samsung_sabi_msg {
@@ -142,6 +144,18 @@ out_free:
 static int
 samsung_wmi_getmiscfeatures(struct samsung_wmi *sammy)
 {
+	u8 buf[16];
+	acpi_status rv;
+
+	/* Check for lid-control support */
+	rv = samsung_sabi_cmd(0x7a, SAMSUNG_QUERY_LID, buf);
+	if (ACPI_FAILURE(rv))
+		return -EIO;
+	if (buf[2] == 0xaa) {
+		sammy->has_lidcontrol = 1;
+		pr_info("    . Lid control\n");
+	}
+
 	return 0;
 }
 
