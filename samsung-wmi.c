@@ -40,10 +40,10 @@ MODULE_LICENSE("GPL");
 MODULE_ALIAS("wmi:"SAMSUNG_WMI_GUID);
 
 struct samsung_wmi {
-	unsigned int has_perflevel : 1;
 	unsigned int has_kbdlight : 1;
-	unsigned int has_misc : 1;
+	unsigned int has_perflevel : 1;
 	unsigned int has_turbo : 1;
+	unsigned int has_misc : 1;
 };
 
 struct samsung_sabi_msg {
@@ -149,37 +149,41 @@ samsung_wmi_getfeatures(struct samsung_wmi *sammy)
 
 	pr_info("Probing SABI for features\n");
 
-	/* Check for and initialize performance level support */
-	rv = samsung_sabi_cmd(0x31, bbaa, buf);
-	if (ACPI_FAILURE(rv) && rv != AE_SUPPORT)
-		return -EIO;
-	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc)
-		sammy->has_perflevel = 1;
-	pr_info(" [%s] Performance level (31)\n", sammy->has_perflevel ? "x" : " ");
-
 	/* Check for and initialize keyboard backlight support */
 	rv = samsung_sabi_cmd(0x78, bbaa, buf);
 	if (ACPI_FAILURE(rv) && rv != AE_SUPPORT)
 		return -EIO;
-	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc)
+	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc) {
 		sammy->has_kbdlight = 1;
-	pr_info(" [%s] Keyboard backlight (78)\n", sammy->has_kbdlight ? "x" : " ");
+		pr_info("  - Keyboard backlight\n");
+	}
 
-	/* Check for and initialize miscellaneous settings */
-	rv = samsung_sabi_cmd(0x7a, bbaa, buf);
+	/* Check for and initialize performance level support */
+	rv = samsung_sabi_cmd(0x31, bbaa, buf);
 	if (ACPI_FAILURE(rv) && rv != AE_SUPPORT)
 		return -EIO;
-	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc)
-		sammy->has_misc = 1;
-	pr_info(" [%s] Miscellaneous settings (7a)\n", sammy->has_misc ? "x" : " ");
+	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc) {
+		sammy->has_perflevel = 1;
+		pr_info("  - Performance level\n");
+	}
 
 	/* Check for and initialize turbo support */
 	rv = samsung_sabi_cmd(0x88, bbaa, buf);
 	if (ACPI_FAILURE(rv) && rv != AE_SUPPORT)
 		return -EIO;
-	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc)
+	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc) {
 		sammy->has_turbo = 1;
-	pr_info(" [%s] Turbo boost (88)\n", sammy->has_turbo ? "x" : " ");
+		pr_info("  - Turbo boost\n");
+	}
+
+	/* Check for and initialize miscellaneous settings */
+	rv = samsung_sabi_cmd(0x7a, bbaa, buf);
+	if (ACPI_FAILURE(rv) && rv != AE_SUPPORT)
+		return -EIO;
+	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc) {
+		sammy->has_misc = 1;
+		pr_info("  - Miscellaneous features\n");
+	}
 
 	return 0;
 }
