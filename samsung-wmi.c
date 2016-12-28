@@ -36,7 +36,10 @@ MODULE_LICENSE("GPL");
 #define SAMSUNG_WMI_METHOD	0
 #define SAMSUNG_WMI_MAGIC	0x5843
 static const u8 SAMSUNG_QUERY_SUPPORT[16] = {0xbb, 0xaa};
-static const u8 SAMSUNG_QUERY_LID[16] = {0x82, 0xa3, 0x82};
+static const u8 SAMSUNG_QUERY_LIDCTL[16] = {0x82, 0xa3, 0x82};
+static const u8 SAMSUNG_QUERY_FANCTL[16] = {0x82, 0xb8, 0x82};
+static const u8 SAMSUNG_QUERY_BATPARK[16] = {0x82, 0xe9, 0x92};
+static const u8 SAMSUNG_QUERY_GPU[16] = {0x82, 0xee, 0x82};
 
 MODULE_ALIAS("wmi:"SAMSUNG_WMI_GUID);
 
@@ -46,6 +49,9 @@ struct samsung_wmi {
 	unsigned int has_turbo : 1;
 	unsigned int has_misc : 1;
 	unsigned int has_lidcontrol : 1;
+	unsigned int has_fancontrol : 1;
+	unsigned int has_batpark : 1;
+	unsigned int has_gpu : 1;
 };
 
 struct samsung_sabi_msg {
@@ -148,12 +154,39 @@ samsung_wmi_getmiscfeatures(struct samsung_wmi *sammy)
 	acpi_status rv;
 
 	/* Check for lid-control support */
-	rv = samsung_sabi_cmd(0x7a, SAMSUNG_QUERY_LID, buf);
+	rv = samsung_sabi_cmd(0x7a, SAMSUNG_QUERY_LIDCTL, buf);
 	if (ACPI_FAILURE(rv))
 		return -EIO;
 	if (buf[2] == 0xaa) {
 		sammy->has_lidcontrol = 1;
 		pr_info("    . Lid control\n");
+	}
+
+	/* Check for fan-control support */
+	rv = samsung_sabi_cmd(0x7a, SAMSUNG_QUERY_FANCTL, buf);
+	if (ACPI_FAILURE(rv))
+		return -EIO;
+	if (buf[2] == 0xaa) {
+		sammy->has_fancontrol = 1;
+		pr_info("    . Fan control\n");
+	}
+
+	/* Check for battery parking support */
+	rv = samsung_sabi_cmd(0x7a, SAMSUNG_QUERY_BATPARK, buf);
+	if (ACPI_FAILURE(rv))
+		return -EIO;
+	if (buf[2] == 0xaa) {
+		sammy->has_batpark = 1;
+		pr_info("    . Battery parking\n");
+	}
+
+	/* Check for GPU support */
+	rv = samsung_sabi_cmd(0x7a, SAMSUNG_QUERY_GPU, buf);
+	if (ACPI_FAILURE(rv))
+		return -EIO;
+	if (buf[2] == 0xaa) {
+		sammy->has_gpu = 1;
+		pr_info("    . GPU\n");
 	}
 
 	return 0;
