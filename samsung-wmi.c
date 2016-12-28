@@ -35,7 +35,7 @@ MODULE_LICENSE("GPL");
 #define SAMSUNG_WMI_INSTANCE	0
 #define SAMSUNG_WMI_METHOD	0
 #define SAMSUNG_WMI_MAGIC	0x5843
-#define SAMSUNG_RESPONSE_LEN	21
+static const u8 SAMSUNG_QUERY_SUPPORT[16] = {0xbb, 0xaa};
 static const u8 SAMSUNG_QUERY_LID[16] = {0x82, 0xa3, 0x82};
 
 MODULE_ALIAS("wmi:"SAMSUNG_WMI_GUID);
@@ -168,7 +168,6 @@ samsung_wmi_getmiscfeatures(struct samsung_wmi *sammy)
 static int
 samsung_wmi_getfeatures(struct samsung_wmi *sammy)
 {
-	u8 bbaa[16] = {0xbb, 0xaa};
 	u8 buf[16];
 	acpi_status rv;
 	int ret;
@@ -176,7 +175,7 @@ samsung_wmi_getfeatures(struct samsung_wmi *sammy)
 	pr_info("Probing SABI for features\n");
 
 	/* Check for and initialize keyboard backlight support */
-	rv = samsung_sabi_cmd(0x78, bbaa, buf);
+	rv = samsung_sabi_cmd(0x78, SAMSUNG_QUERY_SUPPORT, buf);
 	if (ACPI_FAILURE(rv) && rv != AE_SUPPORT)
 		return -EIO;
 	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc) {
@@ -185,7 +184,7 @@ samsung_wmi_getfeatures(struct samsung_wmi *sammy)
 	}
 
 	/* Check for and initialize performance level support */
-	rv = samsung_sabi_cmd(0x31, bbaa, buf);
+	rv = samsung_sabi_cmd(0x31, SAMSUNG_QUERY_SUPPORT, buf);
 	if (ACPI_FAILURE(rv) && rv != AE_SUPPORT)
 		return -EIO;
 	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc) {
@@ -194,7 +193,7 @@ samsung_wmi_getfeatures(struct samsung_wmi *sammy)
 	}
 
 	/* Check for and initialize turbo support */
-	rv = samsung_sabi_cmd(0x88, bbaa, buf);
+	rv = samsung_sabi_cmd(0x88, SAMSUNG_QUERY_SUPPORT, buf);
 	if (ACPI_FAILURE(rv) && rv != AE_SUPPORT)
 		return -EIO;
 	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc) {
@@ -203,7 +202,7 @@ samsung_wmi_getfeatures(struct samsung_wmi *sammy)
 	}
 
 	/* Check for and initialize miscellaneous settings */
-	rv = samsung_sabi_cmd(0x7a, bbaa, buf);
+	rv = samsung_sabi_cmd(0x7a, SAMSUNG_QUERY_SUPPORT, buf);
 	if (ACPI_FAILURE(rv) && rv != AE_SUPPORT)
 		return -EIO;
 	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc) {
