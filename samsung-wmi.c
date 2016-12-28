@@ -135,6 +135,17 @@ out_free:
 }
 
 /*
+ * samsung_wmi_getmiscfeatures
+ *
+ * Probes the SABI interface for supported subfeatures under the 0x7a command.
+ */
+static int
+samsung_wmi_getmiscfeatures(struct samsung_wmi *sammy)
+{
+	return 0;
+}
+
+/*
  * samsung_wmi_getfeatures
  *
  * Probes the SABI interface for feature support, recording the results in the
@@ -146,6 +157,7 @@ samsung_wmi_getfeatures(struct samsung_wmi *sammy)
 	u8 bbaa[16] = {0xbb, 0xaa};
 	u8 buf[16];
 	acpi_status rv;
+	int ret;
 
 	pr_info("Probing SABI for features\n");
 
@@ -183,6 +195,11 @@ samsung_wmi_getfeatures(struct samsung_wmi *sammy)
 	if (rv != AE_SUPPORT && buf[0] == 0xdd && buf[1] == 0xcc) {
 		sammy->has_misc = 1;
 		pr_info("  - Miscellaneous features\n");
+
+		/* Check for miscellaneous (0x7a) subfeatures */
+		ret = samsung_wmi_getmiscfeatures(sammy);
+		if (ret)
+			return ret;
 	}
 
 	return 0;
