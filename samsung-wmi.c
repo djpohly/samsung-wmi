@@ -1,5 +1,5 @@
 /*
- * samsung-wmi.c - Samsung Laptop WMI Driver
+ * samsung-wmi.c - WMI driver for Samsung laptop features
  *
  * Copyright (C) 2016 Devin J. Pohly <djpohly+linux@gmail.com>
  *
