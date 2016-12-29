@@ -1,0 +1,16 @@
+if X86_PLATFORM_DEVICES
+
+config SAMSUNG_WMI
+	tristate "Samsung WMI extras"
+	depends on ACPI_WMI
+	select LEDS_CLASS
+	select NEW_LEDS
+	---help---
+	  This is a driver for newer Samsung laptops.  It offers control over
+	  the keyboard backlight, lid-open detection, fan, battery parking,
+	  and other laptop features as permitted by your hardware and BIOS.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called samsung-wmi.
+
+endif # X86_PLATFORM_DEVICES
