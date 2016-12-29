@@ -40,10 +40,14 @@ static const u8 SAMSUNG_QUERY_LIDCTL[16] = {0x82, 0xa3, 0x82};
 static const u8 SAMSUNG_QUERY_FANCTL[16] = {0x82, 0xb8, 0x82};
 static const u8 SAMSUNG_QUERY_BATPARK[16] = {0x82, 0xe9, 0x92};
 static const u8 SAMSUNG_QUERY_GPU[16] = {0x82, 0xee, 0x82};
+static const u8 SAMSUNG_GET_KBDLIGHT[16] = {0x81};
 
 MODULE_ALIAS("wmi:"SAMSUNG_WMI_GUID);
 
 struct samsung_wmi {
+	struct platform_device *dev;
+	struct led_classdev kbdlight;
+
 	unsigned int has_kbdlight : 1;
 	unsigned int has_perflevel : 1;
 	unsigned int has_turbo : 1;
@@ -251,17 +255,66 @@ samsung_wmi_getfeatures(struct samsung_wmi *sammy)
 	return 0;
 }
 
+/*
+ * samsung_kbd_brightness_set
+ *
+ * Sets the keyboard backlight brightness to the provided number.
+ */
+static void
+samsung_kbd_brightness_set(struct led_classdev *led_cdev,
+		enum led_brightness brightness)
+{
+	pr_info("Setting keyboard brightness to %d\n", brightness);
+}
+
+/*
+ * samsung_kbd_brightness_get
+ *
+ * Returns the current keyboard backlight brightness setting.
+ */
+static enum led_brightness
+samsung_kbd_brightness_get(struct led_classdev *led_cdev)
+{
+	pr_info("Getting keyboard brightness\n");
+	return 0;
+}
+
+/*
+ * samsung_kbd_backlight_init
+ *
+ * Sets up the leds class device for the keyboard backlight.  Uses the SABI
+ * interface to get current and maximum brightness.
+ */
 static int
 samsung_kbd_backlight_init(struct samsung_wmi *sammy)
 {
+	u8 buf[16];
+	acpi_status rv;
+	int ret;
+
 	pr_info("Initializing keyboard backlight\n");
-	return 0;
+
+	sammy->kbdlight.name = SAMSUNG_WMI_DRIVER "::kbd_backlight";
+	sammy->kbdlight.brightness_get = samsung_kbd_brightness_get;
+	sammy->kbdlight.brightness_set = samsung_kbd_brightness_set;
+	rv = samsung_sabi_cmd(0x78, SAMSUNG_GET_KBDLIGHT, buf);
+	if (ACPI_FAILURE(rv))
+		return -EIO;
+	sammy->kbdlight.max_brightness = buf[1] - 1;
+	sammy->kbdlight.brightness = buf[0];
+	pr_info("Current brightness %u/%u\n", buf[0], buf[1] - 1);
+
+	ret = led_classdev_register(&sammy->dev->dev,
+			&sammy->kbdlight);
+
+	return ret;
 }
 
 static void
 samsung_kbd_backlight_destroy(struct samsung_wmi *sammy)
 {
 	pr_info("Cleaning up keyboard backlight\n");
+	led_classdev_unregister(&sammy->kbdlight);
 }
 
 /*
@@ -283,6 +336,7 @@ samsung_wmi_probe(struct platform_device *dev)
 		pr_err("Failed to allocate private struct\n");
 		return -ENOMEM;
 	}
+	sammy->dev = dev;
 
 	ret = samsung_wmi_getfeatures(sammy);
 	if (ret) {
