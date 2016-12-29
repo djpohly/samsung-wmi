@@ -256,18 +256,6 @@ samsung_wmi_getfeatures(struct samsung_wmi *sammy)
 }
 
 /*
- * samsung_kbd_brightness_set
- *
- * Sets the keyboard backlight brightness to the provided number.
- */
-static void
-samsung_kbd_brightness_set(struct led_classdev *led_cdev,
-		enum led_brightness brightness)
-{
-	pr_info("Setting keyboard brightness to %d\n", brightness);
-}
-
-/*
  * samsung_kbd_brightness_get
  *
  * Returns the current keyboard backlight brightness setting.
@@ -275,7 +263,43 @@ samsung_kbd_brightness_set(struct led_classdev *led_cdev,
 static enum led_brightness
 samsung_kbd_brightness_get(struct led_classdev *led_cdev)
 {
+	u8 buf[16];
+	acpi_status rv;
+
 	pr_info("Getting keyboard brightness\n");
+	rv = samsung_sabi_cmd(0x78, SAMSUNG_GET_KBDLIGHT, buf);
+	if (ACPI_FAILURE(rv))
+		return -EIO;
+	led_cdev->max_brightness = buf[1] - 1;
+	pr_info("Current brightness %u/%u\n", buf[0], buf[1] - 1);
+	return buf[0];
+}
+
+/*
+ * samsung_kbd_brightness_set
+ *
+ * Sets the keyboard backlight brightness to the provided number.
+ */
+static int
+samsung_kbd_brightness_set(struct led_classdev *led_cdev,
+		enum led_brightness brightness)
+{
+	u8 buf[16];
+	acpi_status rv;
+
+	if (brightness > led_cdev->max_brightness)
+		brightness = led_cdev->max_brightness;
+	pr_info("Setting keyboard brightness to %d\n", brightness);
+	memset(buf, 0, sizeof(buf));
+	buf[0] = 0x82;
+	buf[1] = brightness;
+	rv = samsung_sabi_cmd(0x78, buf, NULL);
+	if (ACPI_FAILURE(rv)) {
+		pr_err("Failed to set keyboard brightness (error %d)\n", rv);
+		return -EIO;
+	}
+
+	pr_info("Keyboard brightness set\n");
 	return 0;
 }
 
@@ -288,28 +312,28 @@ samsung_kbd_brightness_get(struct led_classdev *led_cdev)
 static int
 samsung_kbd_backlight_init(struct samsung_wmi *sammy)
 {
-	u8 buf[16];
-	acpi_status rv;
 	int ret;
 
 	pr_info("Initializing keyboard backlight\n");
 
 	sammy->kbdlight.name = SAMSUNG_WMI_DRIVER "::kbd_backlight";
 	sammy->kbdlight.brightness_get = samsung_kbd_brightness_get;
-	sammy->kbdlight.brightness_set = samsung_kbd_brightness_set;
-	rv = samsung_sabi_cmd(0x78, SAMSUNG_GET_KBDLIGHT, buf);
-	if (ACPI_FAILURE(rv))
-		return -EIO;
-	sammy->kbdlight.max_brightness = buf[1] - 1;
-	sammy->kbdlight.brightness = buf[0];
-	pr_info("Current brightness %u/%u\n", buf[0], buf[1] - 1);
+	sammy->kbdlight.brightness_set_blocking = samsung_kbd_brightness_set;
 
 	ret = led_classdev_register(&sammy->dev->dev,
 			&sammy->kbdlight);
+	if (ret)
+		return ret;
 
-	return ret;
+	return 0;
 }
 
+/*
+ * samsung_kbd_backlight_destroy
+ *
+ * Tears down the leds class device for the keyboard backlight.  As a side
+ * effect of led_classdev_unregister, the backlight will be turned off.
+ */
 static void
 samsung_kbd_backlight_destroy(struct samsung_wmi *sammy)
 {
